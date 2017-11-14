@@ -1,0 +1,4 @@
+---
+knox_url: http://localhost.prod:8080/gateway
+knox_user: user
+knox_password: mdp
