@@ -56,14 +56,12 @@ EXAMPLES = '''
 #
 # python core, ansible imports
 #
-import os
+from pathlib import Path
 from ansible.module_utils.basic import *
-
 
 #
 # custom imports
 #
-
 DEPENDENCIES_OK = True  # use flag as we want to use module.fail_json for errors
 try:
     import requests
@@ -71,159 +69,224 @@ try:
 except ImportError, e:
     DEPENDENCIES_OK = False
 
+
 def absolute_path(path):
-   if len(path)>0 and path[0]!='/':
-      path = '/'+path
-   return path
+    if len(path) > 0 and path[0] != '/':
+        path = '/' + path
+    return path
+
 
 def parent_path(path):
-  return path
+    return path + '/../'
+
 
 def run(module):
-  url = module.params['url']
-  user = module.params['user']
-  password = module.params['password']
+    url = module.params['url'] + '/webhdfs/v1'
+    user = module.params['user']
+    password = module.params['password']
+    strict = module.params['strict']
 
-  path = module.params['path']
-  state = module.params['state']
-  src = module.params['src']
-  dest = module.params['dest']
-  
-  if(src is not None and dest is not None):
-    copyIfNotExists(url,user,password,src,dest)
-  if(path is not None and state is not None):
-    # TODO
-    module.exit_json(changed=False,msg='Well...')
+    path = module.params['path']
+    state = module.params['state']
+    src = module.params['src']
+    dest = module.params['dest']
 
-  module.fail_json(changed=False)
+    auth = HTTPBasicAuth(user, password)
 
-def copy(url,auth,data,path,msg):
+    if src is not None and dest is not None:
+        copyIfNotExists(module, url, auth, strict, src, dest)
+    if path is not None and state is not None:
+        updateStateIfNeeded(module, url, auth, strict, path, state)
+        module.exit_json(changed=False, msg='Well...')
 
-  if module.check_mode:
-     module.exit_json(changed=False)
+    module.fail_json(changed=False)
 
-  # Ok, copy...
-  url = '{}{}?op=CREATE&overwrite=true'.format(url,path)
-  headers = {}
-  headers['Content-Type'] = 'application/octet-stream'
-  #headers['Authorization'] = HTTPBasicAuth(user,password)
-  #headers['Content-Length'] = ...
-  open_req = requests.put(
-     url,
-     auth=auth,
-     allow_redirects=False,
-     headers=headers)
-  if open_req.status_code==307:
-     location = open_req.headers['Location'];
-     req = requests.put(
-        location,
+
+def updateStateIfNeeded(module, url, auth, strict, path, state):
+    if "directory" == state:
+        createDirectoryIfNeeded(auth, module, path, strict, url)
+    elif "absent" == state:
+        deletePathIfNeeded(auth, module, path, strict, url)
+    module.fail_json(msg='?')
+
+
+def deletePathIfNeeded(auth, module, path, strict, url):
+    url = '{}{}?op=GETFILESTATUS'.format(url, path)
+    req = requests.get(
+        url,
         auth=auth,
-        data=data,
-        headers=headers)
-     if req.status_code!=201:
-       module.fail_json(msg='Cannot copy to path {}, got {}'.format(path, req.status_code))
-  else:
-     module.fail_json(msg='Cannot open path {}, got {}'.format(path, req.status_code))
-  module.exit_json(changed=True,msg=msg)
-
-def copyIfNotExists(url,user,password,data,path):
-   path = absolute_path(path)
-   headers = {}
-   #headers['Authorization'] = HTTPBasicAuth(user,password)
-   auth=HTTPBasicAuth(user,password)
-
-   # Parent exists?
-   url = '{}{}?op=GETFILESTATUS'.format(url,path)
-   req = requests.get(
-     parent_path(url),
-     auth=auth,
-     data=data,
-     headers=headers)
-   if req.status_code==404:
-     # No -> failed
-     module.exit_json(changed=False,msg='Path {} doesn\'t exists'.format(parent_path(path)))
-   if req.status_code==200:
-     # Parent exists!
-     # Path exists?
-     url = '{}{}?op=GETFILESTATUS'.format(url,path)
-     req = requests.get(
-      url,
-      auth=auth,
-      headers=headers)
-     if req.status_code==404:
-       # No -> copy
-       copy(url,auth,data,path,'Path {} doesn\'t exit, copying...'.format(path))
-     if req.status_code==200:
-       # File exists...
-       # Size if the same?
-       if(len(data)!=req.json()['FileStatus']['length']):
-         # No -> copy
-         copy(url,auth,data,path, 'Local and remote file {} do not have the same size, copying...'.format(path))
-       else:
-         # Same checksum?
-         url = '{}{}?op=GETFILECHECKSUM'.format(url,path)
-         req = requests.get(
+        verify=strict)
+    if req.status_code == 200:
+        # File exists...
+        url = '{}{}?op=DELETE&recursive=true'.format(url, path)
+        req = requests.delete(
             url,
+            verify=strict,
+            auth=auth)
+        if req.status_code == 200:
+            module.exit_json(changed=True, msg='Path {} deleted'.format(path))
+        else:
+            module.fail_json(msg='Cannot delete path {}, got {}'.format(path, req.status_code))
+    elif req.status_code == 404:
+        module.exit_json(changed=False, msg='Path is already {} missing'.format(path))
+    else:
+        module.fail_json(msg='Error while getting info about {}, got a file'.format(path))
+
+
+def createDirectoryIfNeeded(auth, module, path, strict, url):
+    url = '{}{}?op=GETFILESTATUS'.format(url, path)
+    req = requests.get(
+        url,
+        auth=auth,
+        verify=strict)
+    if req.status_code == 200:
+        # File exists...
+        if ('DIRECTORY' == req.json()['FileStatus']['type']):
+            module.exit_json(changed=False, msg='Dir already {} created'.format(path))
+        else:
+            module.fail_json(msg='Expecting a dir at {}, got a file'.format(path))
+    if req.status_code == 404:
+        url = '{}{}?op=MKDIRS'.format(url, path)
+        req = requests.put(
+            url,
+            verify=strict,
+            auth=auth)
+        if req.status_code == 200:
+            module.exit_json(changed=True, msg='Dir {} created'.format(path))
+        else:
+            module.fail_json(msg='Cannot create dir {}, got {}'.format(path, req.status_code))
+    else:
+        module.fail_json(msg='Error while getting info about {}, got a file'.format(path))
+
+
+def copy(module, url, auth, strict, data, path, msg):
+    if module.check_mode:
+        module.exit_json(changed=False)
+
+    # Ok, copy...
+    url = '{}{}?op=CREATE&overwrite=true'.format(url, path)
+    headers = {}
+    headers['Content-Type'] = 'application/octet-stream'
+    open_req = requests.put(
+        url,
+        auth=auth,
+        verify=strict,
+        allow_redirects=False,
+        headers=headers)
+    if open_req.status_code == 307:
+        location = open_req.headers['Location'];
+        req = requests.put(
+            location,
             auth=auth,
+            verify=strict,
             data=data,
             headers=headers)
+        if req.status_code != 201:
+            module.fail_json(msg='Cannot copy to path {}, got {}'.format(path, req.status_code))
+    else:
+        module.fail_json(msg='Cannot open path {}, got {}'.format(path, req.status_code))
+    module.exit_json(changed=True, msg=msg)
 
-         #MD5-of-1MD5-of-512CRC32C
-         #md5(md5(crc32))
-         #{
-         #  "FileChecksum":
-         #  {
-         #    "algorithm": "MD5-of-1MD5-of-512CRC32",
-         #    "bytes"    : "eadb10de24aa315748930df6e185c0d ...",
-         #    "length"   : 28
-         #  }
-         #}
-         # No -> copy
-         copy(url,auth,data,path, 'Local and remote file {} do not have the same checksum, copying...'.format(path))
 
-         # Alright, file is here, go away!
-         module.exit_json(changed=False)
-     else:
-       module.fail_json(msg='Cannot get file status for path {}, got {}'.format(path, req.status_code))
-   else:
-     module.fail_json(msg='Cannot get file status for path {}, got {}'.format(parent_path(path), req.status_code))
+def copyIfNotExists(module, url, auth, strict, data, path):
+    path = absolute_path(path)
+
+    # Parent exists?
+    url = '{}{}?op=GETFILESTATUS'.format(url, path)
+    req = requests.get(
+        parent_path(url),
+        auth=auth,
+        verify=strict)
+    if req.status_code == 404:
+        # No -> failed
+        module.fail_json(changed=False, msg='Path {} doesn\'t exists'.format(parent_path(path)))
+    if req.status_code == 200:
+        # Parent exists!
+        # Path exists?
+        url = '{}{}?op=GETFILESTATUS'.format(url, path)
+        req = requests.get(
+            url,
+            auth=auth,
+            verify=strict)
+        if req.status_code == 404:
+            # No -> copy
+            copy(module, url, auth, strict, data, path, 'Path {} doesn\'t exit, copying...'.format(path))
+        if req.status_code == 200:
+            # File exists...
+            # Size if the same?
+            if (len(data) != req.json()['FileStatus']['length']):
+                # No -> copy
+                copy(module, url, auth, strict, data, path,
+                     'Local and remote file {} do not have the same size, copying...'.format(path))
+            else:
+                # Same checksum?
+                url = '{}{}?op=GETFILECHECKSUM'.format(url, path)
+                req = requests.get(
+                    url,
+                    auth=auth,
+                    verify=strict)
+
+                # TODO
+                # MD5-of-1MD5-of-512CRC32C
+                # md5(md5(crc32))
+                # {
+                #  "FileChecksum":
+                #  {
+                #    "algorithm": "MD5-of-1MD5-of-512CRC32",
+                #    "bytes"    : "eadb10de24aa315748930df6e185c0d ...",
+                #    "length"   : 28
+                #  }
+                # }
+                # No -> copy
+                copy(module, url, auth, strict, data, path,
+                     'Local and remote file {} do not have the same checksum, copying...'.format(path))
+
+                # Alright, file is here, go away!
+                module.exit_json(changed=False)
+        else:
+            module.fail_json(msg='Cannot get file status for path {}, got {}'.format(path, req.status_code))
+    else:
+        module.fail_json(msg='Cannot get file status for path {}, got {}'.format(parent_path(path), req.status_code))
+
 
 def main():
-  module = AnsibleModule(
-      argument_spec = dict(
-        path=dict(required=False, type='str'),
-        state = dict(required=False, type='str', choices=['directory', 'absent']),
-        owner=dict(required=False, type='str'),
-        group=dict(required=False, type='str'),
-        src=dict(required=False, type='str'),
-        dest=dict(required=False, type='str'),
-        url=dict(required=True, type='str'),
-        user=dict(required=True, type='str'),
-        password=dict(required=True, type='str')
-      ),
-      required_together = (
-          ['state', 'path'],
-          ['src', 'dest']
-      ),
-      mutually_exclusive = (
-          ['dest', 'path'],
-          ['src', 'path']
-      ),
-      required_one_of = (),
-      supports_check_mode=True
-  )
+    module = AnsibleModule(
+        argument_spec=dict(
+            path=dict(required=False, type='str'),
+            state=dict(required=False, type='str', choices=['directory', 'absent']),
+            owner=dict(required=False, type='str'),
+            group=dict(required=False, type='str'),
+            src=dict(required=False, type='str'),
+            dest=dict(required=False, type='str'),
+            url=dict(required=True, type='str'),
+            strict=dict(required=False, type='bool'),
+            user=dict(required=True, type='str'),
+            password=dict(required=True, type='str', no_log=True)
+        ),
+        required_together=(
+            ['state', 'path'],
+            ['src', 'dest']
+        ),
+        mutually_exclusive=(
+            ['dest', 'path'],
+            ['src', 'path']
+        ),
+        required_one_of=(),
+        supports_check_mode=True
+    )
 
-  # validations and checks
-  # note: module.fail_json stops execution of the module
-  if not DEPENDENCIES_OK:
-      module.fail_json(msg='`requests` library required for this module (`pip install requests`)')
+    # validations and checks
+    # note: module.fail_json stops execution of the module
+    if not DEPENDENCIES_OK:
+        module.fail_json(msg='`requests` library required for this module (`pip install requests`)')
 
-  # Run logic, manage errors
-  try:
-      run(module)
-  except Exception as e:
-      import traceback
-      module.fail_json(msg=str(e) + str(traceback.format_exc()))
+    # Run logic, manage errors
+    try:
+        run(module)
+    except Exception as e:
+        import traceback
+        module.fail_json(msg=str(e) + str(traceback.format_exc()))
+
 
 if __name__ == '__main__':
     main()

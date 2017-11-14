@@ -9,6 +9,7 @@
       url: "{{ knox_url }}"
       user: "{{ knox_user }}"
       password: "{{ knox_password }}"
+      strict: "{{ knox_strict }}"
 
   - name: Copy jar
     hdfs_file:
@@ -17,9 +18,11 @@
       url: "{{ knox_url }}"
       user: "{{ knox_user }}"
       password: "{{ knox_password }}"
+      strict: "{{ knox_strict }}"
 
   - name: Deploy coordinator
     oozie_coordinator:
       url: "{{ knox_url }}"
       user: "{{ knox_user }}"
       password: "{{ knox_password }}"
+      strict: "{{ knox_strict }}"

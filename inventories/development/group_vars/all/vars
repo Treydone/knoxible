@@ -1,4 +1,5 @@
 ---
-knox_url: http://localhost:8080/gateway
+knox_url: https://localhost:8888/gateway/mycluster
 knox_user: user
 knox_password: mdp
+knox_strict: false

@@ -35,7 +35,6 @@ EXAMPLES = '''
 #
 # python core, ansible imports
 #
-import os
 from ansible.module_utils.basic import *
 
 #
@@ -45,44 +44,49 @@ from ansible.module_utils.basic import *
 DEPENDENCIES_OK = True  # use flag as we want to use module.fail_json for errors
 try:
     import requests
+    from requests.auth import HTTPBasicAuth
 except ImportError, e:
     DEPENDENCIES_OK = False
 
+
 def run(module):
-  url = module.params['url']
-  user = module.params['user']
-  password = module.params['password']
+    url = module.params['url']
+    user = module.params['user']
+    password = module.params['password']
 
-  state = module.params['state']
+    state = module.params['state']
 
-  # TODO
+    # TODO
 
-  module.fail_json(changed=False)
+    module.fail_json(changed=False)
+
 
 def main():
-  module = AnsibleModule(
-      argument_spec = dict(
-        state = dict(required=True, type='string', choices=['directory', 'absent']),
-        url=dict(required=True, type='string'),
-        user=dict(required=True, type='string'),
-        password=dict(required=True, type='string'),
-      required_together = (),
-      mutually_exclusive = (),
-      required_one_of = (),
-      supports_check_mode=True
-  )
+    module = AnsibleModule(
+        argument_spec=dict(
+            state=dict(required=True, type='string', choices=['directory', 'absent']),
+            url=dict(required=True, type='string'),
+            user=dict(required=True, type='string'),
+            password=dict(required=True, type='string'),
+            required_together=(),
+            mutually_exclusive=(),
+            required_one_of=(),
+            supports_check_mode=True
+        )
+    )
 
-  # validations and checks
-  # note: module.fail_json stops execution of the module
-  if not DEPENDENCIES_OK:
-      module.fail_json(msg='`requests` library required for this module (`pip install requests`)')
+    # validations and checks
+    # note: module.fail_json stops execution of the module
+    if not DEPENDENCIES_OK:
+        module.fail_json(msg='`requests` library required for this module (`pip install requests`)')
 
-  # Run logic, manage errors
-  try:
-      run(module)
-  except Exception as e:
-      import traceback
-      module.fail_json(msg=str(e) + str(traceback.format_exc()))
+        # Run logic, manage errors
+    try:
+        run(module)
+    except Exception as e:
+        import traceback
+        module.fail_json(msg=str(e) + str(traceback.format_exc()))
+
 
 if __name__ == '__main__':
     main()
