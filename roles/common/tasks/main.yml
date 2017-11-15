@@ -44,10 +44,9 @@
     password: "{{ knox_password }}"
     strict: "{{ knox_strict }}"
 
-
 - name: Ensure oozie/workflows path
   hdfs_file:
-    path: "{{ app_root }}/oozie/workfloews"
+    path: "{{ app_root }}/oozie/workflows"
     state: directory
     url: "{{ knox_url }}"
     user: "{{ knox_user }}"

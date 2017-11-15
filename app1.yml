@@ -4,5 +4,5 @@
   vars:
     app_root: "{{ app1_root }}"
   roles:
-    - common
+#    - common
     - app1

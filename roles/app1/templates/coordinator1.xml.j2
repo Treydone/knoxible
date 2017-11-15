@@ -1,0 +1,13 @@
+<coordinator-app xmlns='uri:oozie:coordinator:0.4'
+    timezone='UTC'
+    end='2016-07-26T02:26Z'
+    start='2016-07-26T01:26Z'
+    frequency='${coord:hours(1)}'
+    name='test-coordinator'>
+
+    <action>
+        <workflow>
+            <app-path>${appPath}</app-path>
+        </workflow>
+    </action>
+</coordinator-app>

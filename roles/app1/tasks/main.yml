@@ -8,18 +8,40 @@
     password: "{{ knox_password }}"
     strict: "{{ knox_strict }}"
 
+- name: Create temporary build directory
+  tempfile:
+    state: directory
+    prefix: ansible-app1
+    suffix: build
+  register: temppath
+
+- name: Render workflow1.xml
+  template:
+    src: workflow1.xml.j2
+    dest: "{{ temppath.path }}/workflow1.xml"
+
 - name: Ensure workflow1.xml is present
   hdfs_file:
-    src: workflow1.xml.j2
+    src: "{{ temppath.path }}/workflow1.xml"
     dest: "{{ app1_root }}/oozie/workflows/workflow1.xml"
     url: "{{ knox_url }}"
     user: "{{ knox_user }}"
     password: "{{ knox_password }}"
     strict: "{{ knox_strict }}"
 
+- name: Render coordinator1.properties
+  template:
+    src: coordinator1.properties.j2
+    dest: "{{ temppath.path }}/coordinator1.properties"
+
+- name: Render coordinator1.xml
+  template:
+    src: coordinator1.xml.j2
+    dest: "{{ temppath.path }}/coordinator1.xml"
+
 - name: Ensure coordinator1.xml is present
   hdfs_file:
-    src: coordinator1.xml.j2
+    src: "{{ temppath.path }}/coordinator1.xml"
     dest: "{{ app1_root }}/oozie/coordinators/coordinator1.xml"
     url: "{{ knox_url }}"
     user: "{{ knox_user }}"

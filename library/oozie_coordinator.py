@@ -40,6 +40,7 @@ from ansible.module_utils.basic import *
 #
 # custom imports
 #
+from io import StringIO
 
 DEPENDENCIES_OK = True  # use flag as we want to use module.fail_json for errors
 try:
@@ -49,38 +50,94 @@ except ImportError, e:
     DEPENDENCIES_OK = False
 
 
+def kill(baseurl, auth, id):
+    url = '{}/job/{}?action=kill'.format(baseurl, id)
+    req = requests.put(
+        url,
+        auth=auth,
+        verify=strict)
+    if req.status_code == 200:
+        module.exit_json(changed=True, msg='Job {} killed'.format(id), id=req.json()['id'])
+    else:
+        module.fail_json(msg='Error while killing job'.format(id))
+
+def write_property(xml,name,value):
+    xml.write('<property>\n')
+    xml.write('<name>')
+    xml.write(name)
+    xml.write('</name>\n')
+    xml.write('<value>')
+    xml.write(str(value))
+    xml.write('</value>\n')
+    xml.write('</property>\n')
+
+def write_properties(xml, properties):
+    xml.write('<?xml version="1.0" encoding="UTF-8"?>\n<configuration>\n')
+    if properties is not None:
+        for name in properties:
+            value = properties[name]
+            write_property(xml,name,value)
+    xml.write('</configuration>\n')
+
 def run(module):
-    url = module.params['url']
+    baseurl = module.params['url'] + '/oozie/v1'
     user = module.params['user']
     password = module.params['password']
+    strict = module.params['strict']
 
-    state = module.params['state']
+    file = module.params['file']
+    #state = module.params['state']
 
-    # TODO
+    properties=dict(line.strip().split('=') for line in open(file))
 
-    module.fail_json(changed=False)
+    auth = HTTPBasicAuth(user, password)
+
+    url = '{}/jobs?filter=jobtype%3Dcoordinator%3Bname={}'.format(baseurl, name)
+    req = requests.get(
+        url,
+        auth=auth,
+        verify=strict)
+    if req.status_code == 200:
+        # Kill all the coordinators found
+        for job in req.json()['jobs']:
+            kill(baseurl, auth, job['id'])
+
+        xml = StringIO()
+        write_properties(xml, properties)
+        req = requests.post(
+            url,
+            data=xml.getvalue(),
+            auth=auth,
+            verify=strict)
+
+        if req.status_code == 201:
+            module.exit_json(changed=True, msg='Job deployed', id=req.json()['id'])
+        else:
+            module.fail_json(msg='Error while deploying the job'.format(id))
+    else:
+        module.fail_json(msg='Error while finding info about coordinators')
 
 
 def main():
     module = AnsibleModule(
         argument_spec=dict(
-            state=dict(required=True, type='string', choices=['directory', 'absent']),
-            url=dict(required=True, type='string'),
-            user=dict(required=True, type='string'),
-            password=dict(required=True, type='string'),
-            required_together=(),
-            mutually_exclusive=(),
-            required_one_of=(),
-            supports_check_mode=True
-        )
+            state=dict(required=True, type='str', choices=['present', 'absent']),
+            url=dict(required=True, type='str'),
+            user=dict(required=True, type='str'),
+            file=dict(required=True, type='str'),
+            strict=dict(required=False, type='bool'),
+            password=dict(required=True, type='str', no_log=True)
+        ),
+        required_together=(),
+        mutually_exclusive=(),
+        required_one_of=(),
+        supports_check_mode=True
     )
 
-    # validations and checks
-    # note: module.fail_json stops execution of the module
     if not DEPENDENCIES_OK:
         module.fail_json(msg='`requests` library required for this module (`pip install requests`)')
 
-        # Run logic, manage errors
+    # Run logic, manage errors
     try:
         run(module)
     except Exception as e:

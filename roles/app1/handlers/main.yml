@@ -1,6 +1,8 @@
 
 - name: Redeploy coordinator1
   oozie_coordinator:
+    state: present
+    file: "{{ temppath.path }}/coordinator1.properties"
     url: "{{ knox_url }}"
     user: "{{ knox_user }}"
     password: "{{ knox_password }}"

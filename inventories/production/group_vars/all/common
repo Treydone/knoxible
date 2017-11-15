@@ -3,3 +3,5 @@ knox_url: https://localhost.production:8888/gateway/mycluster
 knox_user: user
 knox_password: mdp
 knox_strict: true
+
+user_name: prodtestuser
