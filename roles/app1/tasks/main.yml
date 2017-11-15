@@ -1,0 +1,29 @@
+---
+- name: Ensure jar containing the app is present
+  hdfs_file:
+    src: app1-notajar-1.1.jar
+    dest: "{{ app1_root }}/lib/app1-notajar-current.jar"
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"
+
+- name: Ensure workflow1.xml is present
+  hdfs_file:
+    src: workflow1.xml.j2
+    dest: "{{ app1_root }}/oozie/workflows/workflow1.xml"
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"
+
+- name: Ensure coordinator1.xml is present
+  hdfs_file:
+    src: coordinator1.xml.j2
+    dest: "{{ app1_root }}/oozie/coordinators/coordinator1.xml"
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"
+  notify:
+    - Redeploy coordinator1

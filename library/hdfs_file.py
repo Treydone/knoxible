@@ -56,8 +56,8 @@ EXAMPLES = '''
 #
 # python core, ansible imports
 #
-from pathlib import Path
 from ansible.module_utils.basic import *
+from pathlib import Path
 
 #
 # custom imports
@@ -77,7 +77,7 @@ def absolute_path(path):
 
 
 def parent_path(path):
-    return path + '/../'
+    return Path(path).parent
 
 
 def run(module):
@@ -110,15 +110,15 @@ def updateStateIfNeeded(module, url, auth, strict, path, state):
     module.fail_json(msg='?')
 
 
-def deletePathIfNeeded(auth, module, path, strict, url):
-    url = '{}{}?op=GETFILESTATUS'.format(url, path)
+def deletePathIfNeeded(auth, module, path, strict, baseurl):
+    url = '{}{}?op=GETFILESTATUS'.format(baseurl, path)
     req = requests.get(
         url,
         auth=auth,
         verify=strict)
     if req.status_code == 200:
         # File exists...
-        url = '{}{}?op=DELETE&recursive=true'.format(url, path)
+        url = '{}{}?op=DELETE&recursive=true'.format(baseurl, path)
         req = requests.delete(
             url,
             verify=strict,
@@ -133,20 +133,20 @@ def deletePathIfNeeded(auth, module, path, strict, url):
         module.fail_json(msg='Error while getting info about {}, got a file'.format(path))
 
 
-def createDirectoryIfNeeded(auth, module, path, strict, url):
-    url = '{}{}?op=GETFILESTATUS'.format(url, path)
+def createDirectoryIfNeeded(auth, module, path, strict, baseurl):
+    url = '{}{}?op=GETFILESTATUS'.format(baseurl, path)
     req = requests.get(
         url,
         auth=auth,
         verify=strict)
     if req.status_code == 200:
         # File exists...
-        if ('DIRECTORY' == req.json()['FileStatus']['type']):
+        if 'DIRECTORY' == req.json()['FileStatus']['type']:
             module.exit_json(changed=False, msg='Dir already {} created'.format(path))
         else:
             module.fail_json(msg='Expecting a dir at {}, got a file'.format(path))
     if req.status_code == 404:
-        url = '{}{}?op=MKDIRS'.format(url, path)
+        url = '{}{}?op=MKDIRS'.format(baseurl, path)
         req = requests.put(
             url,
             verify=strict,
@@ -154,19 +154,18 @@ def createDirectoryIfNeeded(auth, module, path, strict, url):
         if req.status_code == 200:
             module.exit_json(changed=True, msg='Dir {} created'.format(path))
         else:
-            module.fail_json(msg='Cannot create dir {}, got {}'.format(path, req.status_code))
+            module.fail_json(msg='Cannot create dir {}, got {}: {}'.format(path, req.status_code, req.text))
     else:
         module.fail_json(msg='Error while getting info about {}, got a file'.format(path))
 
 
-def copy(module, url, auth, strict, data, path, msg):
+def copy(module, baseurl, auth, strict, data, path, msg):
     if module.check_mode:
         module.exit_json(changed=False)
 
     # Ok, copy...
-    url = '{}{}?op=CREATE&overwrite=true'.format(url, path)
-    headers = {}
-    headers['Content-Type'] = 'application/octet-stream'
+    url = '{}{}?op=CREATE&overwrite=true'.format(baseurl, path)
+    headers = {'Content-Type': 'application/octet-stream'}
     open_req = requests.put(
         url,
         auth=auth,
@@ -188,13 +187,13 @@ def copy(module, url, auth, strict, data, path, msg):
     module.exit_json(changed=True, msg=msg)
 
 
-def copyIfNotExists(module, url, auth, strict, data, path):
+def copyIfNotExists(module, baseurl, auth, strict, data, path):
     path = absolute_path(path)
 
     # Parent exists?
-    url = '{}{}?op=GETFILESTATUS'.format(url, path)
+    url = '{}{}?op=GETFILESTATUS'.format(baseurl, parent_path(path))
     req = requests.get(
-        parent_path(url),
+        url,
         auth=auth,
         verify=strict)
     if req.status_code == 404:
@@ -203,24 +202,24 @@ def copyIfNotExists(module, url, auth, strict, data, path):
     if req.status_code == 200:
         # Parent exists!
         # Path exists?
-        url = '{}{}?op=GETFILESTATUS'.format(url, path)
+        url = '{}{}?op=GETFILESTATUS'.format(baseurl, path)
         req = requests.get(
             url,
             auth=auth,
             verify=strict)
         if req.status_code == 404:
             # No -> copy
-            copy(module, url, auth, strict, data, path, 'Path {} doesn\'t exit, copying...'.format(path))
+            copy(module, baseurl, auth, strict, data, path, 'Path {} doesn\'t exit, copying...'.format(path))
         if req.status_code == 200:
             # File exists...
             # Size if the same?
-            if (len(data) != req.json()['FileStatus']['length']):
+            if len(data) != req.json()['FileStatus']['length']:
                 # No -> copy
-                copy(module, url, auth, strict, data, path,
+                copy(module, baseurl, auth, strict, data, path,
                      'Local and remote file {} do not have the same size, copying...'.format(path))
             else:
                 # Same checksum?
-                url = '{}{}?op=GETFILECHECKSUM'.format(url, path)
+                url = '{}{}?op=GETFILECHECKSUM'.format(baseurl, path)
                 req = requests.get(
                     url,
                     auth=auth,
@@ -238,7 +237,7 @@ def copyIfNotExists(module, url, auth, strict, data, path):
                 #  }
                 # }
                 # No -> copy
-                copy(module, url, auth, strict, data, path,
+                copy(module, baseurl, auth, strict, data, path,
                      'Local and remote file {} do not have the same checksum, copying...'.format(path))
 
                 # Alright, file is here, go away!

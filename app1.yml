@@ -1,28 +1,8 @@
 ---
 - hosts: localhost
   connection: local
-  tasks:
-  - name: Create directory
-    hdfs_file:
-      path: /src/www
-      state: directory
-      url: "{{ knox_url }}"
-      user: "{{ knox_user }}"
-      password: "{{ knox_password }}"
-      strict: "{{ knox_strict }}"
-
-  - name: Copy jar
-    hdfs_file:
-      src: /file/to/link/to
-      dest: /path/to/symlink
-      url: "{{ knox_url }}"
-      user: "{{ knox_user }}"
-      password: "{{ knox_password }}"
-      strict: "{{ knox_strict }}"
-
-  - name: Deploy coordinator
-    oozie_coordinator:
-      url: "{{ knox_url }}"
-      user: "{{ knox_user }}"
-      password: "{{ knox_password }}"
-      strict: "{{ knox_strict }}"
+  vars:
+    app_root: "{{ app1_root }}"
+  roles:
+    - common
+    - app1

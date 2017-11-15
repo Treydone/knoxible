@@ -1,0 +1,7 @@
+
+- name: Redeploy coordinator1
+  oozie_coordinator:
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"

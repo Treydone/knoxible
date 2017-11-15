@@ -1,0 +1,64 @@
+---
+- name: Ensure root path
+  hdfs_file:
+    path: "{{ app_root }}"
+    state: directory
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"
+
+- name: Ensure scripts path
+  hdfs_file:
+    path: "{{ app_root }}/scripts"
+    state: directory
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"
+
+- name: Ensure lib path
+  hdfs_file:
+    path: "{{ app_root }}/lib"
+    state: directory
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"
+
+- name: Ensure oozie path
+  hdfs_file:
+    path: "{{ app_root }}/oozie"
+    state: directory
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"
+
+- name: Ensure oozie/coordinators path
+  hdfs_file:
+    path: "{{ app_root }}/oozie/coordinators"
+    state: directory
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"
+
+
+- name: Ensure oozie/workflows path
+  hdfs_file:
+    path: "{{ app_root }}/oozie/workfloews"
+    state: directory
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"
+
+- name: Ensure conf path
+  hdfs_file:
+    path: "{{ app_root }}/conf"
+    state: directory
+    url: "{{ knox_url }}"
+    user: "{{ knox_user }}"
+    password: "{{ knox_password }}"
+    strict: "{{ knox_strict }}"
