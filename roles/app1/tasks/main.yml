@@ -14,6 +14,8 @@
     prefix: ansible-app1
     suffix: build
   register: temppath
+  notify:
+    - Delete temp directory
 
 - name: Render workflow1.xml
   template:
