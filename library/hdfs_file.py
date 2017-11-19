@@ -56,12 +56,10 @@ EXAMPLES = '''
 #
 # python core, ansible imports
 #
+import os
 from ansible.module_utils.basic import *
 from pathlib import Path
 
-#
-# custom imports
-#
 DEPENDENCIES_OK = True  # use flag as we want to use module.fail_json for errors
 try:
     import requests
@@ -159,35 +157,35 @@ def createDirectoryIfNeeded(auth, module, path, strict, baseurl):
         module.fail_json(msg='Error while getting info about {}, got a file'.format(path))
 
 
-def copy(module, baseurl, auth, strict, data, path, msg):
+def copy(module, baseurl, auth, strict, src, path, msg):
     if module.check_mode:
         module.exit_json(changed=False)
 
     # Ok, copy...
     url = '{}{}?op=CREATE&overwrite=true'.format(baseurl, path)
-    headers = {'Content-Type': 'application/octet-stream'}
+    # headers = {'Content-Type': 'application/octet-stream'}
     open_req = requests.put(
         url,
         auth=auth,
         verify=strict,
-        allow_redirects=False,
-        headers=headers)
+        allow_redirects=False)
     if open_req.status_code == 307:
         location = open_req.headers['Location'];
-        req = requests.put(
-            location,
-            auth=auth,
-            verify=strict,
-            data=data,
-            headers=headers)
+        with open(src, 'rb') as fh:
+            mydata = fh.read()
+            req = requests.put(
+                location,
+                data=mydata,
+                auth=auth,
+                verify=strict)
         if req.status_code != 201:
             module.fail_json(msg='Cannot copy to path {}, got {}'.format(path, req.status_code))
     else:
-        module.fail_json(msg='Cannot open path {}, got {}'.format(path, req.status_code))
+        module.fail_json(msg='Cannot open path {}, got {}'.format(path, open_req.status_code))
     module.exit_json(changed=True, msg=msg)
 
 
-def copyIfNotExists(module, baseurl, auth, strict, data, path):
+def copyIfNotExists(module, baseurl, auth, strict, src, path):
     path = absolute_path(path)
 
     # Parent exists?
@@ -209,13 +207,13 @@ def copyIfNotExists(module, baseurl, auth, strict, data, path):
             verify=strict)
         if req.status_code == 404:
             # No -> copy
-            copy(module, baseurl, auth, strict, data, path, 'Path {} doesn\'t exit, copying...'.format(path))
+            copy(module, baseurl, auth, strict, src, path, 'Path {} doesn\'t exit, copying...'.format(path))
         if req.status_code == 200:
             # File exists...
             # Size if the same?
-            if len(data) != req.json()['FileStatus']['length']:
+            if os.path.getsize(src) != req.json()['FileStatus']['length']:
                 # No -> copy
-                copy(module, baseurl, auth, strict, data, path,
+                copy(module, baseurl, auth, strict, src, path,
                      'Local and remote file {} do not have the same size, copying...'.format(path))
             else:
                 # Same checksum?
@@ -237,7 +235,7 @@ def copyIfNotExists(module, baseurl, auth, strict, data, path):
                 #  }
                 # }
                 # No -> copy
-                copy(module, baseurl, auth, strict, data, path,
+                copy(module, baseurl, auth, strict, src, path,
                      'Local and remote file {} do not have the same checksum, copying...'.format(path))
 
                 # Alright, file is here, go away!
