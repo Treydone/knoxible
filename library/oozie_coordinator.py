@@ -35,7 +35,6 @@ EXAMPLES = '''
 #
 # python core, ansible imports
 #
-import xml.etree.ElementTree as ET
 from ansible.module_utils.basic import *
 from io import BytesIO
 
@@ -43,20 +42,19 @@ DEPENDENCIES_OK = True  # use flag as we want to use module.fail_json for errors
 try:
     import requests
     from requests.auth import HTTPBasicAuth
+    import xml.etree.ElementTree as ET
 except ImportError, e:
     DEPENDENCIES_OK = False
 
 
-def kill(baseurl, auth, id):
+def kill(module, baseurl, auth, strict, id):
     url = '{}/job/{}?action=kill'.format(baseurl, id)
     req = requests.put(
         url,
         auth=auth,
         verify=strict)
-    if req.status_code == 200:
-        module.exit_json(changed=True, msg='Job {} killed'.format(id), id=req.json()['id'])
-    else:
-        module.fail_json(msg='Error while killing job'.format(id))
+    if req.status_code != 200:
+        module.fail_json(msg='Error while killing job {}'.format(id), data=req.json())
 
 
 def write_property(xml, name, value):
@@ -132,8 +130,11 @@ def run(module):
         except:
             module.fail_json(msg='Cannot parse content {}, got {}'.format(content_as_string, sys.exc_info()[0]))
 
-        # Find coordinator from name
-        url = '{}/jobs?jobtype=coordinator&filter=name={}'.format(ooziebaseurl, coordinatorName)
+        # Find coordinators from name in status WAITING, READY, SUBMITTED, RUNNING, SUSPENDED, TIMEDOUT, SUCCEEDED, FAILED, which means not already KILLED
+        url = '{}/jobs?jobtype=coordinator&filter=name%3D{}' \
+              '%3Bstatus%3DPREP' \
+              '%3Bstatus%3DRUNNING' \
+            .format(ooziebaseurl, coordinatorName)
         req = requests.get(
             url,
             auth=auth,
@@ -141,7 +142,7 @@ def run(module):
         if req.status_code == 200:
             # Kill all the coordinators found
             for job in req.json()['coordinatorjobs']:
-                kill(ooziebaseurl, auth, job['id'])
+                kill(module, ooziebaseurl, auth, strict, job['coordJobId'])
 
             # Deploy coordinator
             xml = BytesIO()
@@ -186,7 +187,7 @@ def main():
     )
 
     if not DEPENDENCIES_OK:
-        module.fail_json(msg='`requests` library required for this module (`pip install requests`)')
+        module.fail_json(msg='some libraries are required for this module (`pip install requests`)')
 
     # Run logic, manage errors
     try:

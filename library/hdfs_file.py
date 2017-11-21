@@ -56,9 +56,11 @@ EXAMPLES = '''
 #
 # python core, ansible imports
 #
+import hashlib
 import os
 from ansible.module_utils.basic import *
 from pathlib import Path
+from io import BytesIO
 
 DEPENDENCIES_OK = True  # use flag as we want to use module.fail_json for errors
 try:
@@ -217,28 +219,35 @@ def copyIfNotExists(module, baseurl, auth, strict, src, path):
                      'Local and remote file {} do not have the same size, copying...'.format(path))
             else:
                 # Same checksum?
-                url = '{}{}?op=GETFILECHECKSUM'.format(baseurl, path)
-                req = requests.get(
-                    url,
-                    auth=auth,
-                    verify=strict)
 
-                # TODO
-                # MD5-of-1MD5-of-512CRC32C
-                # md5(md5(crc32))
-                # {
-                #  "FileChecksum":
-                #  {
-                #    "algorithm": "MD5-of-1MD5-of-512CRC32",
-                #    "bytes"    : "eadb10de24aa315748930df6e185c0d ...",
-                #    "length"   : 28
-                #  }
-                # }
-                # No -> copy
-                copy(module, baseurl, auth, strict, src, path,
-                     'Local and remote file {} do not have the same checksum, copying...'.format(path))
+                # TODO !!! Use instead GETFILECHECKSUM and compare the remote checksum to a MD5 of MD5 of 512CRC32C
+                url = '{}{}?op=OPEN'.format(baseurl, path)
+                open_req = requests.get(url, auth=auth, allow_redirects=False, verify=strict)
+                if open_req.status_code == 307:
+                    location = open_req.headers['Location'];
+                    read_req = requests.get(location, auth=auth, verify=strict)  # , allow_redirects=False, stream=True)
+                    if read_req.status_code == 200:
+                        content = BytesIO(read_req.content)
+                    else:
+                        module.fail_json(
+                            msg='Cannot open datanode location {}, got {}'.format(location, open_req.status_code))
+                else:
+                    module.fail_json(msg='Cannot open path {}, got {}'.format(path, open_req.status_code))
 
-                # Alright, file is here, go away!
+                remote_md5 = hashlib.md5()
+                remote_md5.update(content.getvalue())
+
+                with open(src, 'rb') as fh:
+                    mydata = fh.read()
+                    local_md5 = hashlib.md5()
+                    local_md5.update(mydata)
+
+                if local_md5.hexdigest() != remote_md5.hexdigest():
+                    # No -> copy
+                    copy(module, baseurl, auth, strict, src, path,
+                         'Local and remote file {} do not have the same checksum, copying...'.format(path))
+
+                # Alright, file is already in hdfs, and it's the same, go away!
                 module.exit_json(changed=False)
         else:
             module.fail_json(msg='Cannot get file status for path {}, got {}'.format(path, req.status_code))
