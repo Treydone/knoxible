@@ -1,0 +1,4 @@
+#!/usr/bin/env ansible-playbook
+
+- include: app1.yml
+#- include: app2.yml

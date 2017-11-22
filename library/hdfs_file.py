@@ -15,11 +15,23 @@ author: "Vincent Devillers (@treydone)"
 options:
     state:
         description:
-          - Desired state of the target
-        choices: ['present', 'absent']
-    other_param:
+          - Desired state of the target. If directory, all immediate subdirectories will be created if they do not exist. If absent, directories will be recursively deleted, and files or symlinks will be deleted.
+        choices: ['directory', 'absent']
+    path:
         description:
-          - What does this do?
+          - path to the file being managed.
+    url:
+        description:
+          - url of Knox Gateway
+    user:
+        description:
+          - user
+    password:
+        description:
+          - password
+    strict:
+        description:
+          - enforce strict for https connection
 notes:
     - TODO
 requirements:
@@ -34,33 +46,13 @@ EXAMPLES = '''
     url: "{{ knox_url }}"
     user: "{{ knox_user }}"
     password: "{{ knox_password }}"
-
-- hdfs_file:
-    src: /file/to/link/to
-    dest: /path/to/symlink
-    url: "{{ knox_url }}"
-    user: "{{ knox_user }}"
-    password: "{{ knox_password }}"
-
-# change file ownership, group and mode. When specifying mode using octal numbers, first digit should always be 0.
-- hdfs_file:
-    path: /etc/foo.conf
-    owner: foo
-    group: foo
-    mode: 0644
-    url: "{{ knox_url }}"
-    user: "{{ knox_user }}"
-    password: "{{ knox_password }}"
 '''
 
 #
 # python core, ansible imports
 #
-import hashlib
-import os
 from ansible.module_utils.basic import *
 from pathlib import Path
-from io import BytesIO
 
 DEPENDENCIES_OK = True  # use flag as we want to use module.fail_json for errors
 try:
@@ -88,29 +80,25 @@ def run(module):
 
     path = module.params['path']
     state = module.params['state']
-    src = module.params['src']
-    dest = module.params['dest']
 
     auth = HTTPBasicAuth(user, password)
 
-    if src is not None and dest is not None:
-        copyIfNotExists(module, url, auth, strict, src, dest)
     if path is not None and state is not None:
-        updateStateIfNeeded(module, url, auth, strict, path, state)
+        update_state_if_needed(module, url, auth, strict, path, state)
         module.exit_json(changed=False, msg='Well...')
 
     module.fail_json(changed=False)
 
 
-def updateStateIfNeeded(module, url, auth, strict, path, state):
+def update_state_if_needed(module, url, auth, strict, path, state):
     if "directory" == state:
-        createDirectoryIfNeeded(auth, module, path, strict, url)
+        create_directory_if_needed(auth, module, path, strict, url)
     elif "absent" == state:
-        deletePathIfNeeded(auth, module, path, strict, url)
+        delete_path_if_needed(auth, module, path, strict, url)
     module.fail_json(msg='?')
 
 
-def deletePathIfNeeded(auth, module, path, strict, baseurl):
+def delete_path_if_needed(auth, module, path, strict, baseurl):
     url = '{}{}?op=GETFILESTATUS'.format(baseurl, path)
     req = requests.get(
         url,
@@ -133,7 +121,7 @@ def deletePathIfNeeded(auth, module, path, strict, baseurl):
         module.fail_json(msg='Error while getting info about {}, got a file'.format(path))
 
 
-def createDirectoryIfNeeded(auth, module, path, strict, baseurl):
+def create_directory_if_needed(auth, module, path, strict, baseurl):
     url = '{}{}?op=GETFILESTATUS'.format(baseurl, path)
     req = requests.get(
         url,
@@ -159,123 +147,15 @@ def createDirectoryIfNeeded(auth, module, path, strict, baseurl):
         module.fail_json(msg='Error while getting info about {}, got a file'.format(path))
 
 
-def copy(module, baseurl, auth, strict, src, path, msg):
-    if module.check_mode:
-        module.exit_json(changed=False)
-
-    # Ok, copy...
-    url = '{}{}?op=CREATE&overwrite=true'.format(baseurl, path)
-    # headers = {'Content-Type': 'application/octet-stream'}
-    open_req = requests.put(
-        url,
-        auth=auth,
-        verify=strict,
-        allow_redirects=False)
-    if open_req.status_code == 307:
-        location = open_req.headers['Location'];
-        with open(src, 'rb') as fh:
-            mydata = fh.read()
-            req = requests.put(
-                location,
-                data=mydata,
-                auth=auth,
-                verify=strict)
-        if req.status_code != 201:
-            module.fail_json(msg='Cannot copy to path {}, got {}'.format(path, req.status_code))
-    else:
-        module.fail_json(msg='Cannot open path {}, got {}'.format(path, open_req.status_code))
-    module.exit_json(changed=True, msg=msg)
-
-
-def copyIfNotExists(module, baseurl, auth, strict, src, path):
-    path = absolute_path(path)
-
-    # Parent exists?
-    url = '{}{}?op=GETFILESTATUS'.format(baseurl, parent_path(path))
-    req = requests.get(
-        url,
-        auth=auth,
-        verify=strict)
-    if req.status_code == 404:
-        # No -> failed
-        module.fail_json(changed=False, msg='Path {} doesn\'t exists'.format(parent_path(path)))
-    if req.status_code == 200:
-        # Parent exists!
-        # Path exists?
-        url = '{}{}?op=GETFILESTATUS'.format(baseurl, path)
-        req = requests.get(
-            url,
-            auth=auth,
-            verify=strict)
-        if req.status_code == 404:
-            # No -> copy
-            copy(module, baseurl, auth, strict, src, path, 'Path {} doesn\'t exit, copying...'.format(path))
-        if req.status_code == 200:
-            # File exists...
-            # Size if the same?
-            if os.path.getsize(src) != req.json()['FileStatus']['length']:
-                # No -> copy
-                copy(module, baseurl, auth, strict, src, path,
-                     'Local and remote file {} do not have the same size, copying...'.format(path))
-            else:
-                # Same checksum?
-
-                # TODO !!! Use instead GETFILECHECKSUM and compare the remote checksum to a MD5 of MD5 of 512CRC32C
-                url = '{}{}?op=OPEN'.format(baseurl, path)
-                open_req = requests.get(url, auth=auth, allow_redirects=False, verify=strict)
-                if open_req.status_code == 307:
-                    location = open_req.headers['Location'];
-                    read_req = requests.get(location, auth=auth, verify=strict)  # , allow_redirects=False, stream=True)
-                    if read_req.status_code == 200:
-                        content = BytesIO(read_req.content)
-                    else:
-                        module.fail_json(
-                            msg='Cannot open datanode location {}, got {}'.format(location, open_req.status_code))
-                else:
-                    module.fail_json(msg='Cannot open path {}, got {}'.format(path, open_req.status_code))
-
-                remote_md5 = hashlib.md5()
-                remote_md5.update(content.getvalue())
-
-                with open(src, 'rb') as fh:
-                    mydata = fh.read()
-                    local_md5 = hashlib.md5()
-                    local_md5.update(mydata)
-
-                if local_md5.hexdigest() != remote_md5.hexdigest():
-                    # No -> copy
-                    copy(module, baseurl, auth, strict, src, path,
-                         'Local and remote file {} do not have the same checksum, copying...'.format(path))
-
-                # Alright, file is already in hdfs, and it's the same, go away!
-                module.exit_json(changed=False)
-        else:
-            module.fail_json(msg='Cannot get file status for path {}, got {}'.format(path, req.status_code))
-    else:
-        module.fail_json(msg='Cannot get file status for path {}, got {}'.format(parent_path(path), req.status_code))
-
-
 def main():
     module = AnsibleModule(
         argument_spec=dict(
             path=dict(required=False, type='str'),
             state=dict(required=False, type='str', choices=['directory', 'absent']),
-            owner=dict(required=False, type='str'),
-            group=dict(required=False, type='str'),
-            src=dict(required=False, type='str'),
-            dest=dict(required=False, type='str'),
             url=dict(required=True, type='str'),
             strict=dict(required=False, type='bool'),
             user=dict(required=True, type='str'),
             password=dict(required=True, type='str', no_log=True)
-        ),
-        required_together=(
-            ['state', 'path'],
-            ['src', 'dest']
-        ),
-        mutually_exclusive=(
-            ['dest', 'path'],
-            ['src', 'path']
         ),
         required_one_of=(),
         supports_check_mode=True
